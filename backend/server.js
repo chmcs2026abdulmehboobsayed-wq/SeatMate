@@ -3,6 +3,11 @@ import cors from "cors";
 import dns from "node:dns";
 import dotenv from "dotenv";
 import connectDB from "./config/db.js";
+import authRoutes from "./routes/authRoutes.js";
+import profileRoutes from "./routes/profileRoutes.js";
+import tableRoutes from "./routes/tableRoutes.js";
+import reservationRoutes from "./routes/reservationRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
 
 dotenv.config();
 
@@ -13,6 +18,11 @@ const app = express();
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use("/api/auth", authRoutes);
+app.use("/api/profile", profileRoutes);
+app.use("/api/tables", tableRoutes);
+app.use("/api/reservations", reservationRoutes);
+app.use("/api/admin", adminRoutes);
 
 // Test API
 app.get("/", (req, res) => {
