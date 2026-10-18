@@ -1,14 +1,44 @@
+import mongoose from "mongoose";
 import Reservation from "../model/Reservation.js";
 import Table from "../model/Table.js";
 
 // Create Reservation
 export const createReservation = async (req, res) => {
   try {
-    const { studentId, tableId, chairNumber, reservationDate } = req.body;
+    const { tableId, chairNumber, reservationDate } = req.body;
+    const studentId = req.user.id || req.user._id;
 
-    if (!studentId || !tableId || !chairNumber || !reservationDate) {
+    if (!tableId || !chairNumber || !reservationDate) {
       return res.status(400).json({
         message: "All fields are required",
+      });
+    }
+
+    if (!mongoose.isValidObjectId(tableId)) {
+      return res.status(400).json({
+        message: "Invalid table ID",
+      });
+    }
+
+    const number = Number(chairNumber);
+
+    if (!Number.isInteger(number) || number <= 0) {
+      return res.status(400).json({
+        message: "Invalid chair number",
+      });
+    }
+
+    const date = new Date(reservationDate);
+
+    if (isNaN(date.getTime())) {
+      return res.status(400).json({
+        message: "Invalid reservation date",
+      });
+    }
+
+    if (date <= new Date()) {
+      return res.status(400).json({
+        message: "Reservation date must be in the future",
       });
     }
 
@@ -21,7 +51,7 @@ export const createReservation = async (req, res) => {
     }
 
     const chair = table.chairs.find(
-      (c) => c.chairNumber === Number(chairNumber)
+      (c) => c.chairNumber === number
     );
 
     if (!chair) {
@@ -30,17 +60,11 @@ export const createReservation = async (req, res) => {
       });
     }
 
-    if (chair.status !== "available") {
-      return res.status(409).json({
-        message: "Chair is not available",
-      });
-    }
-
     const existingReservation = await Reservation.findOne({
       tableId,
-      chairNumber: Number(chairNumber),
-      reservationDate: new Date(reservationDate),
-      status: "reserved",
+      chairNumber: number,
+      reservationDate: date,
+      status: { $in: ["reserved", "checked-in"] },
     });
 
     if (existingReservation) {
@@ -52,19 +76,16 @@ export const createReservation = async (req, res) => {
     const reservation = await Reservation.create({
       studentId,
       tableId,
-      chairNumber: Number(chairNumber),
-      reservationDate: new Date(reservationDate),
+      chairNumber: number,
+      reservationDate: date,
     });
 
-    chair.status = "reserved";
-    await table.save();
-
-    res.status(201).json({
+    return res.status(201).json({
       message: "Reservation created successfully",
       reservation,
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       message: "Failed to create reservation",
       error: error.message,
     });
@@ -75,25 +96,45 @@ export const createReservation = async (req, res) => {
 export const getStudentReservations = async (req, res) => {
   try {
     const { studentId } = req.params;
+    const loggedInStudentId = req.user.id || req.user._id;
 
-    const reservations = await Reservation.find({ studentId })
+    if (studentId !== String(loggedInStudentId)) {
+      return res.status(403).json({
+        message: "You can only view your own reservations",
+      });
+    }
+
+    const reservations = await Reservation.find({
+      studentId: loggedInStudentId,
+    })
       .populate("tableId")
       .sort({ createdAt: -1 });
 
-    res.status(200).json(reservations);
+    return res.status(200).json(reservations);
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       message: "Failed to fetch reservations",
       error: error.message,
     });
   }
 };
+
 // Cancel Reservation
 export const cancelReservation = async (req, res) => {
   try {
     const { reservationId } = req.params;
+    const studentId = req.user.id || req.user._id;
 
-    const reservation = await Reservation.findById(reservationId);
+    if (!mongoose.isValidObjectId(reservationId)) {
+      return res.status(400).json({
+        message: "Invalid reservation ID",
+      });
+    }
+
+    const reservation = await Reservation.findOne({
+      _id: reservationId,
+      studentId,
+    });
 
     if (!reservation) {
       return res.status(404).json({
@@ -107,42 +148,36 @@ export const cancelReservation = async (req, res) => {
       });
     }
 
-    const table = await Table.findById(reservation.tableId);
-
-    if (table) {
-      const chair = table.chairs.find(
-        (c) => c.chairNumber === reservation.chairNumber
-      );
-
-      if (chair) {
-        chair.status = "available";
-        await table.save();
-      }
-    }
-
     reservation.status = "cancelled";
     await reservation.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       message: "Reservation cancelled successfully",
       reservation,
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       message: "Failed to cancel reservation",
       error: error.message,
     });
   }
 };
+
 // Student Check-in
 export const checkInReservation = async (req, res) => {
   try {
     const { reservationId } = req.params;
     const studentId = req.user.id || req.user._id;
 
+    if (!mongoose.isValidObjectId(reservationId)) {
+      return res.status(400).json({
+        message: "Invalid reservation ID",
+      });
+    }
+
     const reservation = await Reservation.findOne({
       _id: reservationId,
-      studentId: studentId,
+      studentId,
       status: "reserved",
     });
 
@@ -155,12 +190,12 @@ export const checkInReservation = async (req, res) => {
     reservation.status = "checked-in";
     await reservation.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       message: "Check-in successful",
       reservation,
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       message: "Check-in failed",
       error: error.message,
     });
@@ -173,9 +208,15 @@ export const checkOutReservation = async (req, res) => {
     const { reservationId } = req.params;
     const studentId = req.user.id || req.user._id;
 
+    if (!mongoose.isValidObjectId(reservationId)) {
+      return res.status(400).json({
+        message: "Invalid reservation ID",
+      });
+    }
+
     const reservation = await Reservation.findOne({
       _id: reservationId,
-      studentId: studentId,
+      studentId,
       status: "checked-in",
     });
 
@@ -188,12 +229,12 @@ export const checkOutReservation = async (req, res) => {
     reservation.status = "completed";
     await reservation.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       message: "Check-out successful",
       reservation,
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       message: "Check-out failed",
       error: error.message,
     });

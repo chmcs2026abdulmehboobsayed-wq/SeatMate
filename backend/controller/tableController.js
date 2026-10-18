@@ -1,12 +1,50 @@
 import Table from "../model/Table.js";
+import Reservation from "../model/Reservation.js";
 
 // GET ALL TABLES
+// GET ALL TABLES WITH DATE-WISE AVAILABILITY
 export const getTables = async (req, res) => {
     try {
+        const { date } = req.query;
+
         const tables = await Table.find().sort({
             row: 1,
             position: 1
-        });
+        }).lean();
+
+        // If no date is provided, return tables as usual
+        if (!date) {
+            return res.status(200).json({
+                success: true,
+                count: tables.length,
+                tables
+            });
+        }
+
+        const reservationDate = new Date(date);
+
+        if (isNaN(reservationDate.getTime())) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid reservation date"
+            });
+        }
+
+        const reservations = await Reservation.find({
+            reservationDate,
+            status: { $in: ["reserved", "checked-in"] }
+        }).select("tableId chairNumber");
+
+        for (const table of tables) {
+            for (const chair of table.chairs) {
+                const isBooked = reservations.some(reservation =>
+                    reservation.tableId.toString() === table._id.toString() &&
+                    reservation.chairNumber === chair.chairNumber
+                );
+
+                chair.status = isBooked ? "reserved" : "available";
+            }
+        }
 
         return res.status(200).json({
             success: true,
@@ -23,7 +61,6 @@ export const getTables = async (req, res) => {
         });
     }
 };
-
 
 // ADD TABLE
 export const addTable = async (req, res) => {

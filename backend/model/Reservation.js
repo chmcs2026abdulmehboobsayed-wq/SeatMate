@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
 
+
+
 const reservationSchema = new mongoose.Schema(
   {
     studentId: {
@@ -31,6 +33,16 @@ const reservationSchema = new mongoose.Schema(
 },
   },
   { timestamps: true }
+);
+
+reservationSchema.index(
+  { tableId: 1, chairNumber: 1, reservationDate: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      status: { $in: ["reserved", "checked-in"] }
+    }
+  }
 );
 
 const Reservation = mongoose.model("Reservation", reservationSchema);
