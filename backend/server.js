@@ -8,6 +8,9 @@ import profileRoutes from "./routes/profileRoutes.js";
 import tableRoutes from "./routes/tableRoutes.js";
 import reservationRoutes from "./routes/reservationRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
+import complaintRoutes from "./routes/complaintRoutes.js";
+import notificationRoutes from "./routes/notificationRoutes.js";
+import bookRoutes from "./routes/bookRoutes.js";
 
 dotenv.config();
 
@@ -23,7 +26,9 @@ app.use("/api/profile", profileRoutes);
 app.use("/api/tables", tableRoutes);
 app.use("/api/reservations", reservationRoutes);
 app.use("/api/admin", adminRoutes);
-
+app.use("/api/complaints", complaintRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/books", bookRoutes);
 // Test API
 app.get("/", (req, res) => {
     res.status(200).json({

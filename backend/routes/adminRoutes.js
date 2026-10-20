@@ -4,6 +4,8 @@ import {
   getAllUsers,
   getAllReservations,
   getDashboardStats,
+  adminCancelReservation,
+  getAllTables,
 } from "../controller/adminController.js";
 
 import authMiddleware from "../middleware/authMiddleware.js";
@@ -12,13 +14,6 @@ import adminMiddleware from "../middleware/adminMiddleware.js";
 const router = express.Router();
 
 // Get all users
-router.get("/users", authMiddleware, getAllUsers);
-
-// Get all reservations
-router.get("/reservations", authMiddleware, getAllReservations);
-
-// Get dashboard statistics
-router.get("/dashboard", authMiddleware, getDashboardStats);
 router.get(
   "/users",
   authMiddleware,
@@ -26,6 +21,7 @@ router.get(
   getAllUsers
 );
 
+// Get all reservations
 router.get(
   "/reservations",
   authMiddleware,
@@ -33,11 +29,27 @@ router.get(
   getAllReservations
 );
 
+// Get dashboard statistics
 router.get(
   "/dashboard",
   authMiddleware,
   adminMiddleware,
   getDashboardStats
+);
+
+// Admin cancels a reservation
+router.patch(
+  "/reservations/:reservationId/cancel",
+  authMiddleware,
+  adminMiddleware,
+  adminCancelReservation
+);
+
+router.get(
+  "/tables",
+  authMiddleware,
+  adminMiddleware,
+  getAllTables
 );
 
 export default router;

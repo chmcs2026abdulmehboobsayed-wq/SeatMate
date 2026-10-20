@@ -1,5 +1,4 @@
 import express from "express";
-import authMiddleware from "../middleware/authMiddleware.js";
 
 import {
   createReservation,
@@ -7,23 +6,35 @@ import {
   cancelReservation,
   checkInReservation,
   checkOutReservation,
+  getSlotAvailability,
+  extendReservation,
+  verifyBookingQR,
 } from "../controller/reservationController.js";
+
+import authMiddleware from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Create reservation - login required
+// Check availability for a selected slot
+router.get("/availability", authMiddleware, getSlotAvailability);
+
+// Create reservation
 router.post("/", authMiddleware, createReservation);
 
-// Get student reservations - login required
+// Student reservations
 router.get("/student/:studentId", authMiddleware, getStudentReservations);
 
-// Cancel reservation - login required
+// Cancel reservation
 router.patch("/:reservationId/cancel", authMiddleware, cancelReservation);
 
-// Check-in - login required
-router.patch("/:reservationId/check-in", authMiddleware, checkInReservation);
+// Check-in
+router.patch("/:reservationId/checkin", authMiddleware, checkInReservation);
 
-// Check-out - login required
-router.patch("/:reservationId/check-out", authMiddleware, checkOutReservation);
+// Check-out
+router.patch("/:reservationId/checkout", authMiddleware, checkOutReservation);
+
+router.patch("/:reservationId/extend", authMiddleware, extendReservation);
+
+router.post("/verify-qr", authMiddleware, verifyBookingQR);
 
 export default router;

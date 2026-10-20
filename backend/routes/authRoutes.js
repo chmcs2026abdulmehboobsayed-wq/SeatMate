@@ -1,15 +1,18 @@
 import express from "express";
 import {
     register,
-    login
+    login,
+    updateProfile
 } from "../controller/authController.js";
+
+import protect from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Register student
 router.post("/register", register);
-
-// Login student
 router.post("/login", login);
+
+// Update logged-in user's profile
+router.patch("/profile", protect, updateProfile);
 
 export default router;

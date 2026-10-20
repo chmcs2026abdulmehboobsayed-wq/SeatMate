@@ -1,9 +1,12 @@
 import mongoose from "mongoose";
 
-
-
 const reservationSchema = new mongoose.Schema(
   {
+    bookingId: {
+      type: String,
+      unique: true,
+    },
+
     studentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -26,22 +29,33 @@ const reservationSchema = new mongoose.Schema(
       required: true,
     },
 
-   status: {
-  type: String,
-  enum: ["reserved", "checked-in", "completed", "cancelled"],
-  default: "reserved",
-},
+    reservationEnd: {
+      type: Date,
+      required: true,
+    },
+
+    qrCode: {
+      type: String,
+      default: "",
+    },
+
+    status: {
+      type: String,
+      enum: ["reserved", "checked-in", "completed", "cancelled"],
+      default: "reserved",
+    },
   },
   { timestamps: true }
 );
 
+// Prevent double booking of the same chair at the same slot.
 reservationSchema.index(
   { tableId: 1, chairNumber: 1, reservationDate: 1 },
   {
     unique: true,
     partialFilterExpression: {
-      status: { $in: ["reserved", "checked-in"] }
-    }
+      status: { $in: ["reserved", "checked-in"] },
+    },
   }
 );
 

@@ -137,3 +137,105 @@ export const login = async (req, res) => {
         });
     }
 };
+// UPDATE PROFILE
+export const updateProfile = async (req, res) => {
+    try {
+        const userId = req.user.id || req.user._id;
+        const { name, email, currentPassword, newPassword } = req.body;
+
+        const user = await User.findById(userId);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: "User not found"
+            });
+        }
+
+        if (name !== undefined) {
+            if (!name.trim()) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Name cannot be empty"
+                });
+            }
+
+            user.name = name.trim();
+        }
+
+        if (email !== undefined) {
+            const normalizedEmail = email.trim().toLowerCase();
+
+            if (!normalizedEmail) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Email cannot be empty"
+                });
+            }
+
+            const existingUser = await User.findOne({
+                email: normalizedEmail,
+                _id: { $ne: userId }
+            });
+
+            if (existingUser) {
+                return res.status(409).json({
+                    success: false,
+                    message: "Email already registered"
+                });
+            }
+
+            user.email = normalizedEmail;
+        }
+
+        if (newPassword) {
+            if (!currentPassword) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Current password is required"
+                });
+            }
+
+            const passwordMatch = await bcrypt.compare(
+                currentPassword,
+                user.password
+            );
+
+            if (!passwordMatch) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Current password is incorrect"
+                });
+            }
+
+            if (newPassword.length < 8) {
+                return res.status(400).json({
+                    success: false,
+                    message: "New password must be at least 8 characters"
+                });
+            }
+
+            user.password = await bcrypt.hash(newPassword, 10);
+        }
+
+        await user.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Profile updated successfully",
+            user: {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role
+            }
+        });
+    } catch (error) {
+        console.error("Update profile error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to update profile"
+        });
+    }
+};
