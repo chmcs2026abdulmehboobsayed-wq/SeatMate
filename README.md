@@ -145,7 +145,7 @@ The main objective of SeatMate is to make seat reservation easier, reduce manual
 ## 👨‍💻 Contributors
 
 - **Abdul Mehboob Sayed**
-- **Yash Singh**
+- **Barkatali Hajratali Shaikh**
 
 ## 📌 Future Enhancements
 
