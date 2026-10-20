@@ -19,7 +19,7 @@ dns.setServers(["1.1.1.1", "8.8.8.8"]);
 const app = express();
 
 app.use(cors({
-  origin: "https://your-frontend-name.onrender.com"
+  origin: "https://seatmate-frontend-m6ty.onrender.com/"
 }));
 
 app.use(express.json());
