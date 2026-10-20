@@ -18,8 +18,10 @@ dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
 const app = express();
 
-// Middleware
-app.use(cors());
+app.use(cors({
+  origin: "https://your-frontend-name.onrender.com"
+}));
+
 app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
