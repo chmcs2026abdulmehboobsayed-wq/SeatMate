@@ -1,6 +1,6 @@
 import Book from "../model/Book.js";
 import BookIssue from "../model/BookIssue.js";
-import User from "../model/User.js";
+import User from "../model/user.js";
 
 // Available reading categories
 const ALLOWED_CATEGORIES = [
