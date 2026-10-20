@@ -350,3 +350,16 @@
     flex-direction: column;
   }
 }
+.dashboard-sidebar .sidebar-navigation {
+  flex-shrink: 0 !important;
+  margin-bottom: 20px;
+}
+.dashboard-sidebar {
+ display: flex !important;
+  flex-direction: column !important;
+
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}

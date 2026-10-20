@@ -8,6 +8,10 @@ const LIBRARY_OPEN_HOUR = 10;
 const LIBRARY_CLOSE_HOUR = 17;
 const MAX_ADVANCE_DAYS = 7;
 
+const ACTIVE_STATUSES = ["reserved", "checked-in"];
+const ONE_HOUR = 60 * 60 * 1000;
+
+// Get local date in YYYY-MM-DD format
 const getLocalDateString = (date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -16,13 +20,18 @@ const getLocalDateString = (date) => {
   return `${year}-${month}-${day}`;
 };
 
+// Get logged-in user's ID
+const getUserId = (req) => req.user.id || req.user._id;
+
+// Check whether role is valid for student/teacher booking
+const isBookingRole = (role) => ["student", "teacher"].includes(role);
+
+// Validate library slot
 const isValidLibrarySlot = (date) => {
-  // Sunday holiday
   if (date.getDay() === 0) {
     return false;
   }
 
-  // Only hourly slots from 10 AM to 5 PM
   if (
     date.getHours() < LIBRARY_OPEN_HOUR ||
     date.getHours() >= LIBRARY_CLOSE_HOUR ||
@@ -36,8 +45,10 @@ const isValidLibrarySlot = (date) => {
   return true;
 };
 
+// Check advance booking window
 const isWithinAdvanceWindow = (date) => {
   const now = new Date();
+
   const today = getLocalDateString(now);
   const selectedDay = getLocalDateString(date);
 
@@ -47,15 +58,51 @@ const isWithinAdvanceWindow = (date) => {
     now.getDate() + MAX_ADVANCE_DAYS
   );
 
-  return selectedDay >= today &&
-    selectedDay <= getLocalDateString(maximumDate);
+  return (
+    selectedDay >= today &&
+    selectedDay <= getLocalDateString(maximumDate)
+  );
 };
-// Create Reservation
-// Create Reservation
+
+// Find overlapping active reservations for a chair
+const findConflictingReservation = ({
+  tableId,
+  chairNumber,
+  start,
+  end,
+  excludeReservationId,
+}) => {
+  const query = {
+    tableId,
+    chairNumber: Number(chairNumber),
+    status: { $in: ACTIVE_STATUSES },
+    reservationDate: { $lt: end },
+    reservationEnd: { $gt: start },
+  };
+
+  if (excludeReservationId) {
+    query._id = { $ne: excludeReservationId };
+  }
+
+  return Reservation.findOne(query);
+};
+
+// =====================================================
+// CREATE RESERVATION - STUDENT AND TEACHER
+// =====================================================
+
 export const createReservation = async (req, res) => {
   try {
     const { tableId, chairNumber, reservationDate } = req.body;
-    const studentId = req.user.id || req.user._id;
+
+    const userId = getUserId(req);
+    const userRole = req.user.role;
+
+    if (!isBookingRole(userRole)) {
+      return res.status(403).json({
+        message: "Only students and teachers can book seats",
+      });
+    }
 
     if (!tableId || !chairNumber || !reservationDate) {
       return res.status(400).json({
@@ -93,13 +140,15 @@ export const createReservation = async (req, res) => {
 
     if (!isValidLibrarySlot(date)) {
       return res.status(400).json({
-        message: "Library is open Monday to Saturday, 10 AM to 5 PM",
+        message:
+          "Library is open Monday to Saturday, 10 AM to 5 PM",
       });
     }
 
     if (!isWithinAdvanceWindow(date)) {
       return res.status(400).json({
-        message: "Reservations can only be made up to 7 days in advance",
+        message:
+          "Reservations can only be made up to 7 days in advance",
       });
     }
 
@@ -108,6 +157,13 @@ export const createReservation = async (req, res) => {
     if (!table) {
       return res.status(404).json({
         message: "Table not found",
+      });
+    }
+
+    // Students can book student tables; teachers can book teacher tables.
+    if (table.section !== userRole) {
+      return res.status(403).json({
+        message: "You cannot book seats in this section",
       });
     }
 
@@ -121,22 +177,22 @@ export const createReservation = async (req, res) => {
       });
     }
 
-    if (String(chair.status || "available").toLowerCase() !== "available") {
+    if (
+      String(chair.status || "available").toLowerCase() ===
+      "occupied"
+    ) {
       return res.status(409).json({
-        message: "This chair is not available",
+        message: "This chair is currently unavailable",
       });
     }
 
-    const reservationEnd = new Date(
-      date.getTime() + 60 * 60 * 1000
-    );
+    const reservationEnd = new Date(date.getTime() + ONE_HOUR);
 
-    // Check the exact slot again on the backend.
-    const existingReservation = await Reservation.findOne({
-      tableId,
+    const existingReservation = await findConflictingReservation({
+      tableId: table._id,
       chairNumber: number,
-      reservationDate: date,
-      status: { $in: ["reserved", "checked-in"] },
+      start: date,
+      end: reservationEnd,
     });
 
     if (existingReservation) {
@@ -152,19 +208,20 @@ export const createReservation = async (req, res) => {
 
     const reservation = await Reservation.create({
       bookingId,
-      studentId,
-      tableId,
+      studentId: userId,
+      tableId: table._id,
       chairNumber: number,
       reservationDate: date,
       reservationEnd,
     });
 
+    // Generate QR code
     try {
       const qrData = JSON.stringify({
         bookingId: reservation.bookingId,
         reservationId: reservation._id.toString(),
-        studentId: String(studentId),
-        tableId: String(tableId),
+        studentId: String(userId),
+        tableId: String(table._id),
         chairNumber: number,
         reservationDate: date.toISOString(),
         reservationEnd: reservationEnd.toISOString(),
@@ -176,21 +233,19 @@ export const createReservation = async (req, res) => {
       await Reservation.findByIdAndDelete(reservation._id);
       throw qrError;
     }
-    // Create booking confirmation notification
-try {
-  await Notification.create({
-    recipient: studentId,
-    title: "Booking Confirmed! 🎉",
-    message: `Your booking ${reservation.bookingId} is confirmed. Chair ${number} has been reserved successfully.`,
-    type: "booking_confirmation",
-    relatedId: reservation._id,
-  });
-} catch (notificationError) {
-  console.error(
-    "Booking notification error:",
-    notificationError
-  );
-}
+
+    // Booking confirmation notification
+    try {
+      await Notification.create({
+        recipient: userId,
+        title: "Booking Confirmed! 🎉",
+        message: `Your booking ${reservation.bookingId} is confirmed. Chair ${number} has been reserved successfully.`,
+        type: "booking_confirmation",
+        relatedId: reservation._id,
+      });
+    } catch (notificationError) {
+      console.error("Booking notification error:", notificationError);
+    }
 
     return res.status(201).json({
       message: "Reservation created successfully",
@@ -211,10 +266,21 @@ try {
     });
   }
 };
-// Get reserved chairs for a particular date and time slot
+
+// =====================================================
+// GET SLOT AVAILABILITY - ROLE-BASED
+// =====================================================
+
 export const getSlotAvailability = async (req, res) => {
   try {
     const { reservationDate } = req.query;
+    const userRole = req.user.role;
+
+    if (!isBookingRole(userRole)) {
+      return res.status(403).json({
+        message: "Access denied",
+      });
+    }
 
     if (!reservationDate) {
       return res.status(400).json({
@@ -232,20 +298,31 @@ export const getSlotAvailability = async (req, res) => {
 
     if (!isValidLibrarySlot(date)) {
       return res.status(400).json({
-        message: "Invalid slot. Library hours are 10 AM to 5 PM, Monday to Saturday",
+        message:
+          "Invalid slot. Library hours are 10 AM to 5 PM, Monday to Saturday",
       });
     }
 
+    const slotEnd = new Date(date.getTime() + ONE_HOUR);
+
+    const allowedTables = await Table.find({
+      section: userRole,
+    }).select("_id");
+
+    const allowedTableIds = allowedTables.map((table) => table._id);
+
     const reservations = await Reservation.find({
-      reservationDate: date,
-      status: { $in: ["reserved", "checked-in"] },
+      tableId: { $in: allowedTableIds },
+      reservationDate: { $lt: slotEnd },
+      reservationEnd: { $gt: date },
+      status: { $in: ACTIVE_STATUSES },
     }).select("tableId chairNumber");
 
     return res.status(200).json({
       reservationDate: date.toISOString(),
       reservedSeats: reservations.map((reservation) => ({
         tableId: String(reservation.tableId),
-        chairNumber: reservation.chairNumber,
+        chairNumber: Number(reservation.chairNumber),
       })),
     });
   } catch (error) {
@@ -256,26 +333,40 @@ export const getSlotAvailability = async (req, res) => {
     });
   }
 };
-// Get Student Reservations
+
+// =====================================================
+// GET MY RESERVATIONS - STUDENT AND TEACHER
+// Existing route: GET /student/:studentId
+// =====================================================
+
 export const getStudentReservations = async (req, res) => {
   try {
     const { studentId } = req.params;
-    const loggedInStudentId = req.user.id || req.user._id;
+    const loggedInUserId = getUserId(req);
 
-    if (studentId !== String(loggedInStudentId)) {
+    if (!isBookingRole(req.user.role)) {
+      return res.status(403).json({
+        message: "Access denied",
+      });
+    }
+
+    // Users can only view their own bookings.
+    if (String(studentId) !== String(loggedInUserId)) {
       return res.status(403).json({
         message: "You can only view your own reservations",
       });
     }
 
     const reservations = await Reservation.find({
-      studentId: loggedInStudentId,
+      studentId: loggedInUserId,
     })
       .populate("tableId")
       .sort({ createdAt: -1 });
 
     return res.status(200).json(reservations);
   } catch (error) {
+    console.error("Fetch reservations error:", error);
+
     return res.status(500).json({
       message: "Failed to fetch reservations",
       error: error.message,
@@ -283,11 +374,20 @@ export const getStudentReservations = async (req, res) => {
   }
 };
 
-// Cancel Reservation
+// =====================================================
+// CANCEL RESERVATION - STUDENT AND TEACHER
+// =====================================================
+
 export const cancelReservation = async (req, res) => {
   try {
     const { reservationId } = req.params;
-    const studentId = req.user.id || req.user._id;
+    const userId = getUserId(req);
+
+    if (!isBookingRole(req.user.role)) {
+      return res.status(403).json({
+        message: "Only students and teachers can cancel bookings",
+      });
+    }
 
     if (!mongoose.isValidObjectId(reservationId)) {
       return res.status(400).json({
@@ -297,7 +397,7 @@ export const cancelReservation = async (req, res) => {
 
     const reservation = await Reservation.findOne({
       _id: reservationId,
-      studentId,
+      studentId: userId,
     });
 
     if (!reservation) {
@@ -308,7 +408,7 @@ export const cancelReservation = async (req, res) => {
 
     if (reservation.status !== "reserved") {
       return res.status(400).json({
-        message: "Reservation is already cancelled or completed",
+        message: "Only reserved bookings can be cancelled",
       });
     }
 
@@ -320,6 +420,8 @@ export const cancelReservation = async (req, res) => {
       reservation,
     });
   } catch (error) {
+    console.error("Cancellation error:", error);
+
     return res.status(500).json({
       message: "Failed to cancel reservation",
       error: error.message,
@@ -327,11 +429,20 @@ export const cancelReservation = async (req, res) => {
   }
 };
 
-// Student Check-in
+// =====================================================
+// CHECK-IN
+// =====================================================
+
 export const checkInReservation = async (req, res) => {
   try {
     const { reservationId } = req.params;
-    const studentId = req.user.id || req.user._id;
+    const userId = getUserId(req);
+
+    if (!isBookingRole(req.user.role)) {
+      return res.status(403).json({
+        message: "Access denied",
+      });
+    }
 
     if (!mongoose.isValidObjectId(reservationId)) {
       return res.status(400).json({
@@ -341,7 +452,7 @@ export const checkInReservation = async (req, res) => {
 
     const reservation = await Reservation.findOne({
       _id: reservationId,
-      studentId,
+      studentId: userId,
       status: "reserved",
     });
 
@@ -359,6 +470,8 @@ export const checkInReservation = async (req, res) => {
       reservation,
     });
   } catch (error) {
+    console.error("Check-in error:", error);
+
     return res.status(500).json({
       message: "Check-in failed",
       error: error.message,
@@ -366,11 +479,20 @@ export const checkInReservation = async (req, res) => {
   }
 };
 
-// Student Check-out
+// =====================================================
+// CHECK-OUT
+// =====================================================
+
 export const checkOutReservation = async (req, res) => {
   try {
     const { reservationId } = req.params;
-    const studentId = req.user.id || req.user._id;
+    const userId = getUserId(req);
+
+    if (!isBookingRole(req.user.role)) {
+      return res.status(403).json({
+        message: "Access denied",
+      });
+    }
 
     if (!mongoose.isValidObjectId(reservationId)) {
       return res.status(400).json({
@@ -380,7 +502,7 @@ export const checkOutReservation = async (req, res) => {
 
     const reservation = await Reservation.findOne({
       _id: reservationId,
-      studentId,
+      studentId: userId,
       status: "checked-in",
     });
 
@@ -398,17 +520,29 @@ export const checkOutReservation = async (req, res) => {
       reservation,
     });
   } catch (error) {
+    console.error("Check-out error:", error);
+
     return res.status(500).json({
       message: "Check-out failed",
       error: error.message,
     });
   }
 };
-// Extend Reservation by 1 Hour
+
+// =====================================================
+// EXTEND RESERVATION BY ONE HOUR
+// =====================================================
+
 export const extendReservation = async (req, res) => {
   try {
     const { reservationId } = req.params;
-    const studentId = req.user.id || req.user._id;
+    const userId = getUserId(req);
+
+    if (!isBookingRole(req.user.role)) {
+      return res.status(403).json({
+        message: "Access denied",
+      });
+    }
 
     if (!mongoose.isValidObjectId(reservationId)) {
       return res.status(400).json({
@@ -416,10 +550,9 @@ export const extendReservation = async (req, res) => {
       });
     }
 
-    // Find the student's active checked-in booking
     const reservation = await Reservation.findOne({
       _id: reservationId,
-      studentId,
+      studentId: userId,
       status: "checked-in",
     });
 
@@ -430,24 +563,21 @@ export const extendReservation = async (req, res) => {
     }
 
     const currentEnd = new Date(reservation.reservationEnd);
-    const nextEnd = new Date(
-      currentEnd.getTime() + 60 * 60 * 1000
-    );
+    const nextEnd = new Date(currentEnd.getTime() + ONE_HOUR);
 
-    // Library closes at 5 PM
     if (
       currentEnd.getHours() < LIBRARY_OPEN_HOUR ||
       nextEnd.getHours() > LIBRARY_CLOSE_HOUR ||
       (nextEnd.getHours() === LIBRARY_CLOSE_HOUR &&
         (nextEnd.getMinutes() !== 0 ||
-          nextEnd.getSeconds() !== 0))
+          nextEnd.getSeconds() !== 0 ||
+          nextEnd.getMilliseconds() !== 0))
     ) {
       return res.status(400).json({
         message: "Cannot extend beyond library closing time (5 PM)",
       });
     }
 
-    // Do not extend on Sunday
     if (
       currentEnd.getDay() === 0 ||
       nextEnd.getDay() === 0
@@ -457,14 +587,12 @@ export const extendReservation = async (req, res) => {
       });
     }
 
-    // Check whether the same chair is occupied during the next hour
-    const conflictingReservation = await Reservation.findOne({
-      _id: { $ne: reservation._id },
+    const conflictingReservation = await findConflictingReservation({
       tableId: reservation.tableId,
       chairNumber: reservation.chairNumber,
-      status: { $in: ["reserved", "checked-in"] },
-      reservationDate: { $lt: nextEnd },
-      reservationEnd: { $gt: currentEnd },
+      start: currentEnd,
+      end: nextEnd,
+      excludeReservationId: reservation._id,
     });
 
     if (conflictingReservation) {
@@ -473,10 +601,8 @@ export const extendReservation = async (req, res) => {
       });
     }
 
-    // Update the end time
     reservation.reservationEnd = nextEnd;
 
-    // Refresh QR code with the updated end time
     const qrData = JSON.stringify({
       bookingId: reservation.bookingId,
       reservationId: reservation._id.toString(),
@@ -488,7 +614,6 @@ export const extendReservation = async (req, res) => {
     });
 
     reservation.qrCode = await QRCode.toDataURL(qrData);
-
     await reservation.save();
 
     return res.status(200).json({
@@ -504,10 +629,13 @@ export const extendReservation = async (req, res) => {
     });
   }
 };
-// Admin QR Booking Verification
+
+// =====================================================
+// ADMIN QR BOOKING VERIFICATION
+// =====================================================
+
 export const verifyBookingQR = async (req, res) => {
   try {
-    // Only admins can verify bookings
     if (req.user.role !== "admin") {
       return res.status(403).json({
         success: false,
