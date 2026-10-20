@@ -18,11 +18,20 @@ dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
 const app = express();
 
+
+const allowedOrigins = [
+  "https://seatmate-frontend-m6ty.onrender.com"
+];
+
 app.use(cors({
-  origin: "https://seatmate-frontend-m6ty.onrender.com/"
+  origin: allowedOrigins,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
 }));
 
 app.use(express.json());
+
 app.use("/api/auth", authRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/tables", tableRoutes);
