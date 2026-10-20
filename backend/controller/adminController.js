@@ -1,4 +1,4 @@
-import User from "../model/User.js";
+import User from "../model/user.js";
 import Table from "../model/Table.js";
 import Reservation from "../model/Reservation.js";
 import mongoose from "mongoose";
