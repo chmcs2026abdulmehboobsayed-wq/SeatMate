@@ -27,24 +27,42 @@ const getUserId = (req) => req.user.id || req.user._id;
 const isBookingRole = (role) => ["student", "teacher"].includes(role);
 
 // Validate library slot
+// Validate library slot using India timezone
+const LIBRARY_TIME_ZONE = "Asia/Kolkata";
+
 const isValidLibrarySlot = (date) => {
-  if (date.getDay() === 0) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: LIBRARY_TIME_ZONE,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  const values = Object.fromEntries(
+    parts
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value])
+  );
+
+  // Library is closed on Sunday
+  if (values.weekday === "Sun") {
     return false;
   }
 
-  if (
-    date.getHours() < LIBRARY_OPEN_HOUR ||
-    date.getHours() >= LIBRARY_CLOSE_HOUR ||
-    date.getMinutes() !== 0 ||
-    date.getSeconds() !== 0 ||
-    date.getMilliseconds() !== 0
-  ) {
-    return false;
-  }
+  const hour = Number(values.hour);
 
-  return true;
+  // Valid booking slots: 10 AM to 4 PM
+  // Each booking is for one hour, ending by 5 PM
+  return (
+    hour >= LIBRARY_OPEN_HOUR &&
+    hour < LIBRARY_CLOSE_HOUR &&
+    Number(values.minute) === 0 &&
+    Number(values.second) === 0 &&
+    date.getUTCMilliseconds() === 0
+  );
 };
-
 // Check advance booking window
 const isWithinAdvanceWindow = (date) => {
   const now = new Date();
